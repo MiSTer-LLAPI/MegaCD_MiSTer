@@ -216,12 +216,12 @@ localparam CONF_STR = {
 	"OIJ,Mouse,None,Port1,Port2;",
 	"OK,Mouse Flip Y,No,Yes;",
 	"-;",
-	"og,Serial Mode,None,LLAPI;",
+	"OB,Serial Mode,None,LLAPI;",
 	"-;",
-	"H2OB,Enable FM,Yes,No;",//11
-	"H2OC,Enable PSG,Yes,No;",//12
-	"H2OP,Enable PCM,Yes,No;",//25
-	"H2OQ,Enable CDDA,Yes,No;",//26
+//	"H2OB,Enable FM,Yes,No;",//11
+//	"H2OC,Enable PSG,Yes,No;",//12
+//	"H2OP,Enable PCM,Yes,No;",//25
+//	"H2OQ,Enable CDDA,Yes,No;",//26
 	"H2-;",
 	//"R1,Reset;"
 	"R0,Reset & Eject CD;",
@@ -366,7 +366,7 @@ wire hblank, vblank;
 wire interlace;
 wire [1:0] resolution;
 
-wire EN_GEN_FM   = ~status[11] | ~dbg_menu;
+wire EN_GEN_FM   = ~status[12] | ~dbg_menu;
 wire EN_GEN_PSG  = ~status[12] | ~dbg_menu;
 wire EN_MCD_PCM  = ~status[25] | ~dbg_menu;
 wire EN_MCD_CDDA = ~status[26] | ~dbg_menu;
@@ -849,7 +849,7 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[49];
+wire llapi_select = status[11];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
