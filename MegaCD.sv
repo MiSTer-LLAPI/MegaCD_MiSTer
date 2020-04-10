@@ -214,7 +214,7 @@ localparam CONF_STR = {
 	"-;",
 	"O4,Swap Joysticks,No,Yes;",
 	"O5,6 Buttons Mode,No,Yes;",
-	"OLM,Multitap,Disabled,4-Way,TeamPlayer,J-Cart;",
+	"OLM,Multitap,Disabled,4-Way,TeamPlayer: Port1,TeamPlayer: Port2;",
 	"OIJ,Mouse,None,Port1,Port2;",
 	"OK,Mouse Flip Y,No,Yes;",
 	"-;",
@@ -241,7 +241,7 @@ localparam CONF_STR = {
 wire [15:0] status_menumask = {1'b1,~dbg_menu,1'b0,~bk_ena};
 wire [63:0] status;
 wire  [1:0] buttons;
-wire [11:0] joystick_0,joystick_1,joystick_2,joystick_3;
+wire [11:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
 wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
@@ -279,6 +279,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	.joystick_1(joystick_1),
 	.joystick_2(joystick_2),
 	.joystick_3(joystick_3),
+	.joystick_4(joystick_4),
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 	.new_vmode(new_vmode),
@@ -442,6 +443,7 @@ gen gen
 	.JOY_2(status[4] ? joy_0 : joy_1),
 	.JOY_3(joy_2),
 	.JOY_4(joy_3),
+	.JOY_5(joy_4),
 	.MULTITAP(status[22:21]),
 
 	.MOUSE(ps2_mouse),
@@ -1098,23 +1100,26 @@ end
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
 
 // if LLAPI is enabled, shift USB controllers over to the next available player slot
-wire [11:0] joy_0, joy_1, joy_2, joy_3;
+wire [11:0] joy_0, joy_1, joy_2, joy_3, joy_4;
 always_comb begin
         if (use_llapi & use_llapi2) begin
                 joy_0 = joy_ll_a;
                 joy_1 = joy_ll_b;
                 joy_2 = joystick_0;
                 joy_3 = joystick_1;
+                joy_4 = joystick_2;
         end else if (use_llapi ^ use_llapi2) begin
                 joy_0 = use_llapi  ? joy_ll_a : joystick_0;
                 joy_1 = use_llapi2 ? joy_ll_b : joystick_0;
                 joy_2 = joystick_1;
                 joy_3 = joystick_2;
+                joy_4 = joystick_3;
         end else begin
                 joy_0 = joystick_0;
                 joy_1 = joystick_1;
                 joy_2 = joystick_2;
                 joy_3 = joystick_3;
+                joy_4 = joystick_4;
         end
 end
 
