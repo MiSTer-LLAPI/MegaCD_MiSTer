@@ -116,10 +116,10 @@ module emu
 	// Open-drain User port.
 	// 0 - D+/RX
 	// 1 - D-/TX
-	// 2..5 - USR1..USR4
+	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-	input   [5:0] USER_IN,
-	output  [5:0] USER_OUT,
+	input   [6:0] USER_IN,
+	output  [6:0] USER_OUT,
 
 	input         OSD_STATUS
 );
@@ -205,7 +205,7 @@ localparam CONF_STR = {
 	"OU,320x224 Aspect,Original,Corrected;",
 	"o13,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"OT,Border,No,Yes;",
-	"O9,Composite Blending,Off,On;",
+	"oFG,Composite Blend,Off,On,Adaptive;",
 	"OV,Sprite Limit,Normal,High;",
 	"-;",
 	"OEF,Audio Filter,Model 1,Model 2,Minimal,No Filter;",
@@ -217,16 +217,20 @@ localparam CONF_STR = {
 	"OLM,Multitap,Disabled,4-Way,TeamPlayer: Port1,TeamPlayer: Port2;",
 	"OIJ,Mouse,None,Port1,Port2;",
 	"OK,Mouse Flip Y,No,Yes;",
+	"oHI,Serial,OFF,SNAC,LLAPI;",
 	"-;",
-	"OB,Serial Mode,None,LLAPI;",
+	"o89,Gun Control,Disabled,Joy1,Joy2,Mouse;",
+	"H4oA,Gun Fire,Joy,Mouse;",
+	"H4oBC,Cross,Small,Medium,Big,None;",
+	"H4oD,Gun Type,Justifier,Menacer;",
 	"-;",
-//	"H2OB,Enable FM,Yes,No;",//11
-//	"H2OC,Enable PSG,Yes,No;",//12
-//	"H2OP,Enable PCM,Yes,No;",//25
-//	"H2OQ,Enable CDDA,Yes,No;",//26
-//	"H2o4,Enable BGA,Yes,No;",//36
-//	"H2o5,Enable BGB,Yes,No;",//37
-//	"H2o6,Enable SPR,Yes,No;",//38
+  	"H2OB,Enable FM,Yes,No;",//11
+  	"H2OC,Enable PSG,Yes,No;",//12
+  	"H2OP,Enable PCM,Yes,No;",//25
+  	"H2OQ,Enable CDDA,Yes,No;",//26
+  	"H2o4,Enable BGA,Yes,No;",//36
+  	"H2o5,Enable BGB,Yes,No;",//37
+  	"H2o6,Enable SPR,Yes,No;",//38
 	"H2o7,MCD RAM,Banks 2&3,Banks 0&1;",//39
 	"H2-;",
 	//"R1,Reset;"
@@ -238,10 +242,11 @@ localparam CONF_STR = {
 };
 
 
-wire [15:0] status_menumask = {1'b1,~dbg_menu,1'b0,~bk_ena};
+wire [15:0] status_menumask = {!gun_mode,1'b1,~dbg_menu,1'b0,~bk_ena};
 wire [63:0] status;
 wire  [1:0] buttons;
 wire [11:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
+wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
@@ -267,6 +272,9 @@ wire [24:0] ps2_mouse;
 
 wire [21:0] gamma_bus;
 
+wire [1:0] gun_mode = status[41:40];
+wire       gun_btn_mode = status[42];
+wire       gun_type = ~status[45];
 
 hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 (
@@ -280,6 +288,8 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	.joystick_2(joystick_2),
 	.joystick_3(joystick_3),
 	.joystick_4(joystick_4),
+	.joystick_analog_0({joy0_y, joy0_x}),
+	.joystick_analog_1({joy1_y, joy1_x}),
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 	.new_vmode(new_vmode),
@@ -310,11 +320,19 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	
 	.gamma_bus(gamma_bus),
 	
-	.cd_in(cd_in),
-	.cd_out(cd_out),
-
 	.ps2_key(ps2_key),
-	.ps2_mouse(ps2_mouse)
+	.ps2_mouse(ps2_mouse),
+
+	.EXT_BUS(EXT_BUS)
+);
+
+wire [35:0] EXT_BUS;
+hps_ext hps_ext
+(
+	.clk_sys(clk_sys),
+	.EXT_BUS(EXT_BUS),
+	.cd_in(cd_in),
+	.cd_out(cd_out)
 );
 
 reg dbg_menu = 0;
@@ -377,8 +395,7 @@ wire hblank, vblank;
 wire interlace;
 wire [1:0] resolution;
 
-// MP2E: this line used to use status[11]
-wire EN_GEN_FM   = ~status[12] | ~dbg_menu;
+wire EN_GEN_FM   = ~status[11] | ~dbg_menu;
 wire EN_GEN_PSG  = ~status[12] | ~dbg_menu;
 wire EN_MCD_PCM  = ~status[25] | ~dbg_menu;
 wire EN_MCD_CDDA = ~status[26] | ~dbg_menu;
@@ -449,6 +466,18 @@ gen gen
 	.MOUSE(ps2_mouse),
 	.MOUSE_OPT(status[20:18]),
 
+	.GUN_OPT(|gun_mode),
+	.GUN_TYPE(gun_type),
+	.GUN_SENSOR(lg_sensor),
+	.GUN_A(lg_a),
+	.GUN_B(lg_b),
+	.GUN_C(lg_c),
+	.GUN_START(lg_start),
+
+	.SERJOYSTICK_IN(SERJOYSTICK_IN),
+	.SERJOYSTICK_OUT(SERJOYSTICK_OUT),
+	.SER_OPT(SER_OPT),
+
 	.ENABLE_FM(EN_GEN_FM),
 	.ENABLE_PSG(EN_GEN_PSG),
 	.EN_HIFI_PCM(status[23]), // Option "N"
@@ -458,8 +487,13 @@ gen gen
 	.OBJ_LIMIT_HIGH(status[31]),
 
 	.RAM_CE_N(GEN_RAM_CE_N),
-	.RAM_RDY(~GEN_MEM_BUSY)
+	.RAM_RDY(~GEN_MEM_BUSY),
+
+	.TRANSP_DETECT(TRANSP_DETECT)
 );
+
+wire TRANSP_DETECT;
+wire cofi_enable = status[47] || (status[48] && TRANSP_DETECT);
 
 assign GEN_VDI = !GEN_RAM_CE_N ? GEN_MEM_DO_R :
 					  !CART_DTACK_N ? CART_DO :
@@ -885,7 +919,7 @@ wire [7:0] red, green, blue;
 cofi coffee (
 	.clk(clk_sys),
 	.pix_ce(ce_pix),
-	.enable(status[9]),
+	.enable(cofi_enable),
 
 	.hblank(hblank),
 	.vblank(vblank),
@@ -920,9 +954,9 @@ video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 
 	.mono(0),
 
-	.R(red),
-	.G(green),
-	.B(blue),
+	.R((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[0]}} : red),
+	.G((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[1]}} : green),
+	.B((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[2]}} : blue),
 
 	// Positive pulses.
 	.HSync(hs_c),
@@ -931,6 +965,43 @@ video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 	.VBlank(vblank_c)
 );
 
+wire [2:0] lg_target;
+wire       lg_sensor;
+wire       lg_a;
+wire       lg_b;
+wire       lg_c;
+wire       lg_start;
+
+lightgun lightgun
+(
+	.CLK(clk_sys),
+	.RESET(reset),
+
+	.MOUSE(ps2_mouse),
+	.MOUSE_XY(&gun_mode),
+
+	.JOY_X(gun_mode[0] ? joy0_x : joy1_x),
+	.JOY_Y(gun_mode[0] ? joy0_y : joy1_y),
+	.JOY(gun_mode[0] ? joystick_0 : joystick_1),
+
+	.RELOAD(gun_type),
+
+	.HDE(~hblank_c),
+	.VDE(~vblank_c),
+	.CE_PIX(ce_pix),
+	.H40(res[0]),
+
+	.BTN_MODE(gun_btn_mode),
+	.SIZE(status[44:43]),
+	.SENSOR_DELAY(gun_type ? 8'd32 : 8'd64),
+
+	.TARGET(lg_target),
+	.SENSOR(lg_sensor),
+	.BTN_A(lg_a),
+	.BTN_B(lg_b),
+	.BTN_C(lg_c),
+	.BTN_START(lg_start)
+);
 
 reg  [1:0] region_req;
 reg        region_set = 0;
@@ -985,20 +1056,9 @@ wire [71:0] llapi_analog, llapi_analog2;
 wire [7:0]  llapi_type, llapi_type2;
 wire llapi_en, llapi_en2;
 
-wire llapi_select = status[11];
+wire llapi_select = status[50];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
-
-always_comb begin
-	USER_OUT = 6'b111111;
-	if (llapi_select) begin
-		USER_OUT[0] = llapi_latch_o;
-		USER_OUT[1] = llapi_data_o;
-		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
-		USER_OUT[4] = llapi_latch_o2;
-		USER_OUT[5] = llapi_data_o2;
-	end
-end
 
 LLAPI llapi
 (
@@ -1237,5 +1297,39 @@ always @(posedge clk_sys) begin
 	end
 end
 
+wire [7:0] SERJOYSTICK_IN;
+wire [7:0] SERJOYSTICK_OUT;
+wire [1:0] SER_OPT;
+
+always @(posedge clk_sys) begin
+	if (status[49]) begin
+		SERJOYSTICK_IN[0] <= USER_IN[1];//up
+		SERJOYSTICK_IN[1] <= USER_IN[0];//down	
+		SERJOYSTICK_IN[2] <= USER_IN[5];//left	
+		SERJOYSTICK_IN[3] <= USER_IN[3];//right
+		SERJOYSTICK_IN[4] <= USER_IN[2];//b TL		
+		SERJOYSTICK_IN[5] <= USER_IN[6];//c TR GPIO7			
+		SERJOYSTICK_IN[6] <= USER_IN[4];//  TH
+		SERJOYSTICK_IN[7] <= 0;
+		SER_OPT[0] <= status[4];
+		SER_OPT[1] <= ~status[4];
+		USER_OUT[1] <= SERJOYSTICK_OUT[0];
+		USER_OUT[0] <= SERJOYSTICK_OUT[1];
+		USER_OUT[5] <= SERJOYSTICK_OUT[2];
+		USER_OUT[3] <= SERJOYSTICK_OUT[3];
+		USER_OUT[2] <= SERJOYSTICK_OUT[4];
+		USER_OUT[6] <= SERJOYSTICK_OUT[5];
+		USER_OUT[4] <= SERJOYSTICK_OUT[6];
+	end else if (llapi_select) begin
+		USER_OUT[0] = llapi_latch_o;
+		USER_OUT[1] = llapi_data_o;
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
+		USER_OUT[4] = llapi_latch_o2;
+		USER_OUT[5] = llapi_data_o2;
+	end else begin
+		SER_OPT  <= 0;
+		USER_OUT <= '1;
+	end
+end
 
 endmodule
