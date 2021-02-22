@@ -40,8 +40,9 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output [11:0] VIDEO_ARX,
-	output [11:0] VIDEO_ARY,
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -52,6 +53,9 @@ module emu
 	output        VGA_F1,
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
 
 `ifdef USE_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
@@ -176,6 +180,14 @@ assign BUTTONS   = {bk_reload, llapi_osd};
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
+assign LED_DISK  = {1'b1,MCD_LED_RED};
+assign LED_POWER = {1'b1,MCD_LED_GREEN};
+assign LED_USER  = rom_download | sav_pending;
+
+assign VGA_SCALER= 0;
+
+assign AUDIO_S   = 1;
+assign AUDIO_MIX = 0;
 wire [1:0] ar = status[50:49];
 wire [7:0] arx,ary;
 
@@ -203,16 +215,26 @@ always_comb begin
 		endcase
 	end
 
-assign VIDEO_ARX  = (!ar) ? arx : (ar - 1'd1);
-assign VIDEO_ARY  = (!ar) ? ary : 12'd0;
-assign VGA_SCALER = 0;
+wire       vcrop_en = status[32];
+wire [3:0] vcopt    = status[54:51];
+reg        en216p;
+reg  [4:0] voff;
+always @(posedge CLK_VIDEO) begin
+	en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
+	voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
+end
 
-assign AUDIO_S = 1;
-assign AUDIO_MIX = 0;
-assign LED_POWER = {1'b1,MCD_LED_GREEN};
-assign LED_DISK  = {1'b1,MCD_LED_RED};
-assign LED_USER  = rom_download | sav_pending;
-
+wire vga_de;
+video_freak video_freak
+(
+	.*,
+	.VGA_DE_IN(vga_de),
+	.ARX((!ar) ? arx : (ar - 1'd1)),
+	.ARY((!ar) ? ary : 12'd0),
+	.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
+	.CROP_OFF(voff),
+	.SCALE(status[56:55])
+);
 
 ///////////////////////////////////////////////////
 wire clk_sys, clk_ram, locked;
@@ -231,7 +253,7 @@ pll pll
 // 0         1         2         3          4         5         6   
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXX  XXXXXXXXXXXXXXXX  XXX  XXXXXXXXXXXXXXXXXX           XX
+// XXXXXXXXX  XXXXXXXXXXXXXXXXX XXX XXXXXXXXXXXXXXXXXXXXXXXXX     XX
 
 `include "build_id.v"
 localparam CONF_STR = {
@@ -257,11 +279,16 @@ localparam CONF_STR = {
 	"P1OU,320x224 Aspect,Original,Corrected;",
 	"P1o13,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"P1-;",
+	"d9P1o0,Vertical Crop,Disabled,216p(5x);",
+	"d9P1oJM,Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
+	"P1oNO,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
+	"P1- ;",
 	"P1OT,Border,No,Yes;",
 	"P1oFG,Composite Blend,Off,On,Adaptive;",
 	"P1OV,Sprite Limit,Normal,High;",
 	"P1-;",
 	"P1OEF,Audio Filter,Model 1,Model 2,Minimal,No Filter;",
+	"P1OR,CD Audio,Unfiltered,Filtered;",
 	"P1O8,FM Chip,YM2612,YM3438;",
 	"P1ON,HiFi PCM,No,Yes;",
 
@@ -300,7 +327,7 @@ localparam CONF_STR = {
 };
 
 
-wire [15:0] status_menumask = {region,!region,~gg_available,!gun_mode,1'b1,~dbg_menu,1'b0,~bk_ena};
+wire [15:0] status_menumask = {en216p,region,!region,~gg_available,!gun_mode,1'b1,~dbg_menu,1'b0,~bk_ena};
 wire [63:0] status;
 wire  [1:0] buttons;
 wire [11:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
@@ -470,6 +497,9 @@ wire        GEN_PAGE_CE_N;
 wire [15:0] GEN_MEM_DO;
 wire        GEN_MEM_BUSY;
 
+wire [15:0] GEN_AUDL;
+wire [15:0] GEN_AUDR;
+
 wire [7:0] color_lut[16] = '{
 	8'd0,   8'd27,  8'd49,  8'd71,
 	8'd87,  8'd103, 8'd119, 8'd130,
@@ -523,15 +553,16 @@ gen gen
 	.TIME_N(GEN_PAGE_CE_N),
 	.TIME_DI(GEN_PAGE_DI),
 
-	.EXT_SL(MCD_SL),
-	.EXT_SR(MCD_SR),
-
 	.LOADING(rom_download),
 	.EXPORT(|region),
 	.PAL(PAL),
 
-	.DAC_LDATA(AUDIO_L),
-	.DAC_RDATA(AUDIO_R),
+	.EXT_SL(mcd_l),
+	.EXT_SR(mcd_r),
+	.EXT_EN(status[27]),
+
+	.DAC_LDATA(GEN_AUDL),
+	.DAC_RDATA(GEN_AUDR),
 
 	.RED(r),
 	.GREEN(g),
@@ -698,22 +729,25 @@ MCD MCD
 	.GG_AVAILABLE(gg_available2)
 );
 
-wire [15:0] MCD_SL;
-wire [15:0] MCD_SR;
+reg [15:0] aud_l, aud_r;
+reg [15:0] mcd_l, mcd_r;
+always @(posedge clk_sys) begin
+	mcd_l <= ({16{EN_MCD_PCM}} & {MCD_PCM_SL[15],MCD_PCM_SL[15:1]}) + ({16{EN_MCD_CDDA}} & {MCD_CDDA_SL[15],MCD_CDDA_SL[15:1]});
+	mcd_r <= ({16{EN_MCD_PCM}} & {MCD_PCM_SR[15],MCD_PCM_SR[15:1]}) + ({16{EN_MCD_CDDA}} & {MCD_CDDA_SR[15],MCD_CDDA_SR[15:1]});
 
-SND_MIX mcd_mix
-(
-	.CH0_R(MCD_PCM_SR),
-	.CH0_L(MCD_PCM_SL),
-	.CH0_EN(EN_MCD_PCM),
+	if(~status[27]) begin
+		aud_l <= {GEN_AUDL[15],GEN_AUDL[15:1]} + {mcd_l[15],mcd_l[15:1]};
+		aud_r <= {GEN_AUDR[15],GEN_AUDR[15:1]} + {mcd_r[15],mcd_r[15:1]};
+	end
+	else begin
+		aud_l <= GEN_AUDL;
+		aud_r <= GEN_AUDR;
+	end
+end
 	
-	.CH1_R(MCD_CDDA_SR),
-	.CH1_L(MCD_CDDA_SL),
-	.CH1_EN(EN_MCD_CDDA),
+assign AUDIO_L = aud_l;
+assign AUDIO_R = aud_r;
 	
-	.OUT_R(MCD_SR),
-	.OUT_L(MCD_SL)
-);
 
 //ROM/RAM Cart
 wire [15:0] CART_DO;
@@ -1040,6 +1074,7 @@ video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 
 	.mono(0),
 
+	.VGA_DE(vga_de),
 	.R((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[0]}} : red),
 	.G((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[1]}} : green),
 	.B((lg_target && gun_mode && (~&status[44:43])) ? {8{lg_target[2]}} : blue),

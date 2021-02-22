@@ -58,12 +58,14 @@ module gen
 	input         CART_N,
 	input         DISK_N,
 	
-	input  [15:0] EXT_SL,
-	input  [15:0] EXT_SR,
-
 	input   [1:0] LPF_MODE,
 	input         ENABLE_FM,
 	input         ENABLE_PSG,
+
+	input  [15:0] EXT_SL,
+	input  [15:0] EXT_SR,
+	input         EXT_EN,
+
 	output [15:0] DAC_LDATA,
 	output [15:0] DAC_RDATA,
 
@@ -1145,10 +1147,8 @@ wire signed [15:0] FM_right;
 wire signed [15:0] FM_left;
 wire signed [15:0] FM_LPF_right;
 wire signed [15:0] FM_LPF_left;
-wire [15:0] SL;
-wire [15:0] SR;
-wire signed [15:0] PRE_LPF_L;
-wire signed [15:0] PRE_LPF_R;
+wire signed [15:0] SL;
+wire signed [15:0] SR;
 
 jt12 fm
 (
@@ -1204,26 +1204,26 @@ jt12_genmix genmix
 	.snd_right(SR)
 );
 
-SND_MIX mix
-(
-	.CH0_R(SR),
-	.CH0_L(SL),
-	.CH0_EN(1),
+reg [15:0] mix_l, mix_r;
+always @(posedge MCLK) begin
+	reg [15:0] mcd_l, mcd_r;
 	
-	.CH1_R(EXT_SR),
-	.CH1_L(EXT_SL),
-	.CH1_EN(1),
-	
-	.OUT_R(PRE_LPF_R),
-	.OUT_L(PRE_LPF_L)
-);
+	if(EXT_EN) begin
+		mix_l <= {SL[15],SL[15:1]} + {EXT_SL[15],EXT_SL[15:1]};
+		mix_r <= {SR[15],SR[15:1]} + {EXT_SR[15],EXT_SR[15:1]};
+	end
+	else begin
+		mix_l <= SL;
+		mix_r <= SR;
+	end
+end
 
 genesis_lpf lpf_right
 (
 	.clk(MCLK),
 	.reset(reset),
 	.lpf_mode(LPF_MODE[1:0]),
-	.in(PRE_LPF_R),
+	.in(mix_r),
 	.out(DAC_RDATA)
 );
 
@@ -1232,7 +1232,7 @@ genesis_lpf lpf_left
 	.clk(MCLK),
 	.reset(reset),
 	.lpf_mode(LPF_MODE[1:0]),
-	.in(PRE_LPF_L),
+	.in(mix_l),
 	.out(DAC_LDATA)
 );
 
