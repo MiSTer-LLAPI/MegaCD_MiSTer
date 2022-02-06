@@ -19,6 +19,8 @@
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
+//LLAPI: llapi.sv needs to be in rtl folder and needs to be declared in file.qip (set_global_assignment -name SYSTEMVERILOG_FILE rtl/llapi.sv)
+
 
 module emu
 (
@@ -176,8 +178,9 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+//LLAPI: OSD combinaison
 assign BUTTONS   = {bk_reload, llapi_osd};
-
+//LLAPI
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
 assign LED_DISK  = {1'b1,MCD_LED_RED};
@@ -308,9 +311,11 @@ localparam CONF_STR = {
 	"D4P2oBC,Cross,Small,Medium,Big,None;",
 	"D4P2oD,Gun Type,Justifier,Menacer;",
 	"P2-;",
+	//LLAPI: OSD menu item. swapped NONE with LLAPI. To detect LLAPI, status[63] = 1.
+	//LLAPI: Always double check witht the bits map allocation table to avoid conflicts	
 	"P2oUV,Serial,OFF,SNAC,LLAPI;",
-
 	"-;",
+	//LLAPI
   	"H2OB,Enable FM,Yes,No;",//11
   	"H2OC,Enable PSG,Yes,No;",//12
   	"H2OP,Enable PCM,Yes,No;",//25
@@ -332,7 +337,9 @@ localparam CONF_STR = {
 wire [15:0] status_menumask = {en216p,region,!region,~gg_available,!gun_mode,1'b1,~dbg_menu,1'b0,~bk_ena};
 wire [63:0] status;
 wire  [1:0] buttons;
-wire [11:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
+//LLAPI: Distinguish hps_io (usb) josticks from llapi joysticks
+wire [11:0] joy_usb_0, joy_usb_1, joy_usb_2, joy_usb_3, joy_usb_4;
+//LLAPI
 wire  [7:0] joy0_x,joy0_y,joy1_x,joy1_y;
 wire        ioctl_download;
 wire        ioctl_wr;
@@ -370,11 +377,13 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.joystick_0(joystick_0),
-	.joystick_1(joystick_1),
-	.joystick_2(joystick_2),
-	.joystick_3(joystick_3),
-	.joystick_4(joystick_4),
+	//LLAPI : renamed hps_io (usb) joysticks
+	.joystick_0(joy_usb_0),
+	.joystick_1(joy_usb_1),
+	.joystick_2(joy_usb_2),
+	.joystick_3(joy_usb_3),
+	.joystick_4(joy_usb_4),
+	//LLAPI
 	.joystick_l_analog_0({joy0_y, joy0_x}),
 	.joystick_l_analog_1({joy1_y, joy1_x}),
 	.buttons(buttons),
@@ -1178,6 +1187,8 @@ wire llapi_select = status[63];
 
 wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
 
+//Port 1 conf
+
 LLAPI llapi
 (
 	.CLK_50M(CLK_50M),
@@ -1192,6 +1203,8 @@ LLAPI llapi
 	.LLAPI_TYPE(llapi_type),
 	.LLAPI_EN(llapi_en)
 );
+
+//Port 2 conf
 
 LLAPI llapi2
 (
@@ -1236,19 +1249,33 @@ wire use_llapi2 = llapi_en2 && llapi_select && ((|llapi_type2 && ~(&llapi_type2)
 // 4 = RX+   = P2 Latch
 // 5 = RX-   = P2 Data
 
+//Controller string provided by core for reference (order is important)
+//Controller specific mapping based on type. More info here : https://docs.google.com/document/d/12XpxrmKYx_jgfEPyw-O2zex1kTQZZ-NSBdLO2RQPRzM/edit
+//llapi_Buttons id are HID id - 1
+
+//Port 1 mapping
+
 wire [11:0] joy_ll_a;
 always_comb begin
 	// button layout for 6 button controllers
-	if (llapi_type == 20 || llapi_type == 21 || llapi_type == 8 || llapi_type == 3 || llapi_type == 54 || llapi_type == 11) begin
+	if (llapi_type == 20 || llapi_type == 21 || llapi_type == 8 || llapi_type == 3 || llapi_type == 11) begin
 		joy_ll_a = {
 			llapi_buttons[6], llapi_buttons[3], llapi_buttons[2], // Z, Y, X
 			llapi_buttons[4], llapi_buttons[5], // Mode, Start
 			llapi_buttons[7], llapi_buttons[1], llapi_buttons[0], // C, B, A
 			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
 		};
+	// button layout for NEC Avenue 6 Pad
+	end else if (llapi_type == 54) begin
+		joy_ll_a = {
+			llapi_buttons[3], llapi_buttons[2], llapi_buttons[6], // Z, Y, X
+			llapi_buttons[4], llapi_buttons[5], // Mode, Start
+			llapi_buttons[1], llapi_buttons[0], llapi_buttons[7], // C, B, A
+			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
+		};
 	end else begin
 		joy_ll_a = {
-			llapi_buttons[6], llapi_buttons[3], llapi_buttons[7], // Z, Y, X
+			llapi_buttons[7], llapi_buttons[3], llapi_buttons[6], // Z, Y, X
 			llapi_buttons[4], llapi_buttons[5], // Mode, Start
 			llapi_buttons[1], llapi_buttons[0], llapi_buttons[2], // C, B, A
 			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
@@ -1259,16 +1286,24 @@ end
 wire [11:0] joy_ll_b;
 always_comb begin
 	// button layout for 6 button controllers
-	if (llapi_type2 == 20 || llapi_type2 == 21 || llapi_type2 == 8 || llapi_type2 == 3 || llapi_type2 == 54 || llapi_type2 == 11) begin
+	if (llapi_type2 == 20 || llapi_type2 == 21 || llapi_type2 == 8 || llapi_type2 == 3 || llapi_type2 == 11) begin
 		joy_ll_b = {
 			llapi_buttons2[6], llapi_buttons2[3], llapi_buttons2[2], // Z, Y, X
 			llapi_buttons2[4], llapi_buttons2[5], // Mode, Start
 			llapi_buttons2[7], llapi_buttons2[1], llapi_buttons2[0], // C, B, A
 			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
 		};
+	// button layout for NEC Avenue 6 Pad
+	end else if (llapi_type2 == 54) begin
+		joy_ll_b = {
+			llapi_buttons2[3], llapi_buttons2[2], llapi_buttons2[6], // Z, Y, X
+			llapi_buttons2[4], llapi_buttons2[5], // Mode, Start
+			llapi_buttons2[1], llapi_buttons2[0], llapi_buttons2[7], // C, B, A
+			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
 	end else begin
 		joy_ll_b = {
-			llapi_buttons2[6], llapi_buttons2[3], llapi_buttons2[7], // Z, Y, X
+			llapi_buttons2[7], llapi_buttons2[3], llapi_buttons2[6], // Z, Y, X
 			llapi_buttons2[4], llapi_buttons2[5], // Mode, Start
 			llapi_buttons2[1], llapi_buttons2[0], llapi_buttons2[2], // C, B, A
 			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
@@ -1276,6 +1311,8 @@ always_comb begin
 	end
 end
 
+//Assign (DOWN + FIRST BUTTON) Combinaison to bring the OSD up - P1 and P1 ports.
+//TODO : Support long press detection
 wire llapi_osd = (llapi_buttons[26] & llapi_buttons[5] & llapi_buttons[0]) || (llapi_buttons2[26] & llapi_buttons2[5] & llapi_buttons2[0]);
 
 // if LLAPI is enabled, shift USB controllers over to the next available player slot
@@ -1284,21 +1321,21 @@ always_comb begin
         if (use_llapi & use_llapi2) begin
                 joy_0 = joy_ll_a;
                 joy_1 = joy_ll_b;
-                joy_2 = joystick_0;
-                joy_3 = joystick_1;
-                joy_4 = joystick_2;
+                joy_2 = joy_usb_0;
+                joy_3 = joy_usb_1;
+                joy_4 = joy_usb_2;
         end else if (use_llapi ^ use_llapi2) begin
-                joy_0 = use_llapi  ? joy_ll_a : joystick_0;
-                joy_1 = use_llapi2 ? joy_ll_b : joystick_0;
-                joy_2 = joystick_1;
-                joy_3 = joystick_2;
-                joy_4 = joystick_3;
+                joy_0 = use_llapi  ? joy_ll_a : joy_usb_0;
+                joy_1 = use_llapi2 ? joy_ll_b : joy_usb_0;
+                joy_2 = joy_usb_1;
+                joy_3 = joy_usb_2;
+                joy_4 = joy_usb_3;
         end else begin
-                joy_0 = joystick_0;
-                joy_1 = joystick_1;
-                joy_2 = joystick_2;
-                joy_3 = joystick_3;
-                joy_4 = joystick_4;
+                joy_0 = joy_usb_0;
+                joy_1 = joy_usb_1;
+                joy_2 = joy_usb_2;
+                joy_3 = joy_usb_3;
+                joy_4 = joy_usb_4;
         end
 end
 
@@ -1439,13 +1476,15 @@ always @(posedge clk_sys) begin
 		USER_OUT[2] <= SERJOYSTICK_OUT[4];
 		USER_OUT[6] <= SERJOYSTICK_OUT[5];
 		USER_OUT[4] <= SERJOYSTICK_OUT[6];
+	//LLAPI: Connection to USER_OUT port
 	end else if (llapi_select) begin
 		USER_OUT[0] = llapi_latch_o;
 		USER_OUT[1] = llapi_data_o;
-		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS); // LED on blister
 		USER_OUT[4] = llapi_latch_o2;
 		USER_OUT[5] = llapi_data_o2;
 		SER_OPT  <= 0;
+	//LLAPI
 	end else begin
 		SER_OPT  <= 0;
 		USER_OUT <= '1;
