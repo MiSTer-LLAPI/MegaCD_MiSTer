@@ -32,7 +32,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -262,7 +262,7 @@ pll pll
 `include "build_id.v"
 localparam CONF_STR = {
 	"MegaCD;;",
-	"S0,CUE,Insert Disk;",
+	"S0,CUECHD,Insert Disk;",
 	"-;",
 	"h6O67,Region,Auto(JP),JP,US,EU;",
 	"h7O67,Region,Auto(US),JP,US,EU;",
