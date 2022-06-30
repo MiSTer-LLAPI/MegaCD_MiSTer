@@ -9,6 +9,8 @@ entity CD_DAC is
 		RST_N			: in std_logic;
 		ENABLE		: in std_logic;
 		
+		PALSW			: in std_logic;
+		
 		CD_DI			: in std_logic_vector(15 downto 0);
 		CD_WR			: in std_logic;
 		
@@ -41,6 +43,8 @@ architecture rtl of CD_DAC is
 	
 	signal OUTL 		: signed(15 downto 0);
 	signal OUTR 		: signed(15 downto 0);
+	
+	signal CDDA_REF   : integer;
 
 begin
 
@@ -84,11 +88,13 @@ begin
 		q			=> FIFO_Q
 	);
 	
+	CDDA_REF <= 532034 when PALSW = '1' else 536931;
+	
 	CEGen : entity work.CEGen
 	port map(
 		CLK   		=> CLK,
 		RST_N       => RST_N,		
-		IN_CLK   	=> 536900,
+		IN_CLK   	=> CDDA_REF,
 		OUT_CLK   	=> 441,
 		CE   			=> SAMPLE_CE
 	);
