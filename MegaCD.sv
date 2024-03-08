@@ -55,13 +55,14 @@ module emu
 	output        VGA_F1,
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+	output        VGA_DISABLE, // analog out is off
 
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
 	output        HDMI_FREEZE,
 
 `ifdef MISTER_FB
-	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
+	// Use framebuffer in DDRAM
 	// FB_FORMAT:
 	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
 	//    [3]   : 0=16bits 565 1=16bits 1555
@@ -188,6 +189,7 @@ assign LED_POWER = {1'b1,MCD_LED_GREEN};
 assign LED_USER  = rom_download | sav_pending;
 
 assign VGA_SCALER= 0;
+assign VGA_DISABLE = 0;
 assign HDMI_FREEZE = 0;
 
 assign AUDIO_S   = 1;
@@ -316,7 +318,8 @@ end
 // 0         1         2         3          4         5         6   
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXX  XXXXXXXXXXXXXXXXX XXX XXXXXXXXXXXXXXXXXXXXXXXXX     XX
+
+// XXXXXXXXX XXXXXXXXXXXXXXXXXX XXX XXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 `include "build_id.v"
 localparam CONF_STR = {
@@ -353,6 +356,7 @@ localparam CONF_STR = {
 	"P1-;",
 	"P1OEF,Audio Filter,Model 1,Model 2,Minimal,No Filter;",
 	"P1OR,CD Audio,Unfiltered,Filtered;",
+	"P1oPQ,Audio Boost,No,2x,4x;",
 	"P1O8,FM Chip,YM2612,YM3438;",
 	"P1ON,HiFi PCM,No,Yes;",
 
@@ -485,6 +489,10 @@ hps_ext hps_ext
 (
 	.clk_sys(clk_sys),
 	.EXT_BUS(EXT_BUS),
+
+	.cd_data_ready(1),
+	.cdda_ready(MCD_CDDA_WR_READY),
+
 	.cd_in(cd_in),
 	.cd_out(cd_out)
 );
@@ -511,6 +519,7 @@ end
 wire rom_download = ioctl_download & (ioctl_index[5:0] <= 6'h01);
 wire cdc_dat_download = ioctl_download & (ioctl_index[5:0] == 6'h02);
 wire cdc_sub_download = ioctl_download & (ioctl_index[5:0] == 6'h03);
+wire cdc_cdda_download = ioctl_download & (ioctl_index[5:0] == 6'h04);
 wire save_download = ioctl_download & (ioctl_index[5:0] == 6'h05);
 wire code_download = ioctl_download & &ioctl_index;
 
@@ -716,6 +725,7 @@ wire [15:0] MCD_PCM_SL;
 wire [15:0] MCD_PCM_SR;
 wire [15:0] MCD_CDDA_SL;
 wire [15:0] MCD_CDDA_SR;
+wire        MCD_CDDA_WR_READY;
 
 wire [17:0] MCD_PRG_ADDR;
 wire [15:0] MCD_PRG_DO;
@@ -783,8 +793,10 @@ MCD MCD
 	.CDD_DM(scd_cdd_dm),
 	
 	.CDC_DATA(cdc_d),
-	.CDC_DAT_WR(cdc_wr & cdc_dat_download),
+	.CDC_DAT_WR(cdc_wr & (cdc_dat_download | cdc_cdda_download)),
 	.CDC_SC_WR(cdc_wr & cdc_sub_download),
+	.CDC_CDDA_WR(cdc_wr & cdc_cdda_download),
+	.CDDA_WR_READY(MCD_CDDA_WR_READY),
 
 	.PCM_SL(MCD_PCM_SL),
 	.PCM_SR(MCD_PCM_SR),
@@ -800,7 +812,29 @@ MCD MCD
 	.GG_AVAILABLE(gg_available2)
 );
 
+localparam [3:0] comp_f1 = 4;
+localparam [3:0] comp_a1 = 2;
+localparam       comp_x1 = ((32767 * (comp_f1 - 1)) / ((comp_f1 * comp_a1) - 1)) + 1; // +1 to make sure it won't overflow
+localparam       comp_b1 = comp_x1 * comp_a1;
+
+localparam [3:0] comp_f2 = 8;
+localparam [3:0] comp_a2 = 4;
+localparam       comp_x2 = ((32767 * (comp_f2 - 1)) / ((comp_f2 * comp_a2) - 1)) + 1; // +1 to make sure it won't overflow
+localparam       comp_b2 = comp_x2 * comp_a2;
+
+function [15:0] compr; input [15:0] inp;
+	reg [15:0] v, v1, v2;
+	begin
+		v  = inp[15] ? (~inp) + 1'd1 : inp;
+		v1 = (v < comp_x1[15:0]) ? (v * comp_a1) : (((v - comp_x1[15:0])/comp_f1) + comp_b1[15:0]);
+		v2 = (v < comp_x2[15:0]) ? (v * comp_a2) : (((v - comp_x2[15:0])/comp_f2) + comp_b2[15:0]);
+		v  = status[58] ? v2 : v1;
+		compr = inp[15] ? ~(v-1'd1) : v;
+	end
+endfunction
+
 reg [15:0] aud_l, aud_r;
+reg [15:0] cmp_l, cmp_r;
 reg [15:0] mcd_l, mcd_r;
 always @(posedge clk_sys) begin
 	mcd_l <= ({16{EN_MCD_PCM}} & {MCD_PCM_SL[15],MCD_PCM_SL[15:1]}) + ({16{EN_MCD_CDDA}} & {MCD_CDDA_SL[15],MCD_CDDA_SL[15:1]});
@@ -814,11 +848,13 @@ always @(posedge clk_sys) begin
 		aud_l <= GEN_AUDL;
 		aud_r <= GEN_AUDR;
 	end
+	
+	cmp_l <= compr(aud_l);
+	cmp_r <= compr(aud_r);
 end
-	
-assign AUDIO_L = aud_l;
-assign AUDIO_R = aud_r;
-	
+
+assign AUDIO_L = status[58:57] ? cmp_l : aud_l;
+assign AUDIO_R = status[58:57] ? cmp_r : aud_r;
 
 //ROM/RAM Cart
 wire [15:0] CART_DO;
