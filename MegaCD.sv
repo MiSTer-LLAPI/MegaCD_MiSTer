@@ -1407,14 +1407,22 @@ end
 
 // Player / LLAPI port allocation
 always_comb begin
-        if (~use_llapi & use_llapi2)  begin
+         if (~use_llapi & use_llapi2)  begin
                	joy_0 = joy_ll_b;
                 joy_1 = joy_usb_0;
                 joy_2 = joy_usb_1;
                 joy_3 = joy_usb_2;
                 joy_4 = joy_usb_3;
-        end else begin
-                joy_0 = joy_ll_a;
+				
+		end else if (use_llapi & ~use_llapi2)  begin
+               	joy_0 = joy_ll_a;
+                joy_1 = joy_usb_0;
+                joy_2 = joy_usb_1;
+                joy_3 = joy_usb_2;
+                joy_4 = joy_usb_3;
+				
+		end else  begin
+               	joy_0 = joy_ll_a;
                 joy_1 = joy_ll_b;
                 joy_2 = joy_usb_0;
                 joy_3 = joy_usb_1;
